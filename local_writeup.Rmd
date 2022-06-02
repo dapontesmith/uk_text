@@ -36,6 +36,7 @@ full <- bind_rows(
     TRUE ~ 0
   ))
 
+
 # function for getting vectors out of data 
 get_vec <- function(data = full, name, nterms = 25) {
   out <- data %>% 
