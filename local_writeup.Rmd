@@ -1,0 +1,295 @@
+---
+title: "Place-Based Resentment and Local Representation in Britain"
+author: "Noah Daponte-Smith"
+date: \today
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+setwd("C:/Users/dapon/Dropbox/Harvard/dissertation/data")
+library(tidyverse)
+library(lfe)
+library(patchwork)
+library(knitr)
+library(ggeffects)
+# read in and deal with places data 
+df01 <- read_csv("uk_geography/places_output/out2001.csv")
+df05 <- read_csv("uk_geography/places_output/out2005.csv")
+df10 <- read_csv("uk_geography/places_output/out2010.csv")
+df15 <- read_csv("uk_geography/places_output/out2015.csv")
+df17 <- read_csv("uk_geography/places_output/out2017.csv")
+
+election2015 <- as.Date("2015-05-07")
+election2010 <- as.Date("2010-05-06")
+election2005 <- as.Date("2005-05-05")
+election2001 <- as.Date("2001-06-07")
+
+full <- bind_rows(
+  df01, df05, df10, df15, df17
+) %>% 
+  rename(count = place_mentions_in_constit) %>% 
+  mutate(prop = count / terms) %>% 
+  mutate(government = case_when(
+    party == "Lab" & date < election2010 ~ 1, 
+    party == "Con" & date > election2010 ~ 1, 
+    party == "LibDem" & date > election2010 & date < election2015 ~ 1,
+    TRUE ~ 0
+  ))
+
+# function for getting vectors out of data 
+get_vec <- function(data = full, name, nterms = 25) {
+  out <- data %>% 
+    filter(terms > nterms,
+           party == name) %>% 
+    pull(prop)
+  return(out)
+}
+
+# read in wave 21 of the BES (cleaned)
+ bes <- read_csv("bes/internet_panel/clean_data/bes_wave21_clean.csv") 
+ bes$areaRichPoor_scale <- scale(bes$areaRichPoor)[,1]
+ bes$pcon <- bes$PCON19CD
+
+```
+
+
+## Perceptions of local representation
+How does the individual's perception that a party is particularly good at looking after local interests correspond with vote choice? 
+
+```{r}
+
+bes_twoparty <- bes %>% filter(vote_2019 %in% c("con","lab")) %>% 
+    mutate(voted_lab_twoparty = case_when(
+    vote_2019 == "con" ~ 0, 
+    vote_2019 == "lab" ~ 1
+  ), voted_con_twoparty = case_when(
+    voted_lab_twoparty == 0 ~ 1, 
+    voted_lab_twoparty == 1 ~ 0
+  ))
+
+lablogit <- glm(data = bes_twoparty,
+                voted_lab_twoparty ~ labLookAfterLocal +
+    p_edlevel + p_socgrade + p_gross_household + 
+    age + male + is_white + as.factor(region))
+
+
+conlogit <- glm(data = bes_twoparty,
+                voted_con_twoparty ~ conLookAfterLocal +
+    p_edlevel + p_socgrade + p_gross_household + 
+    age + male + is_white + as.factor(region))
+
+modelsummary(
+  list("Voted Labour" = lablogit,
+       "Voted Tory" = conlogit),
+  stars = TRUE,
+  output = "markdown",
+  coef_map = c(
+    "labLookAfterLocal" = "Labour looks after local",
+    "conLookAfterLocal" = "Con looks after local"
+  ),
+  add_rows = bind_cols("Region fixed effects", "Yes","Yes")
+)
+
+
+# make plot 
+labout <- ggpredict(lablogit, terms = "labLookAfterLocal")
+conout <- ggpredict(conlogit, terms = "conLookAfterLocal")
+
+toplot <- cbind(
+  rbind(as_tibble(labout$predicted), as_tibble(conout$predicted)),
+  rbind(as_tibble(labout$conf.low), as_tibble(conout$conf.low)), 
+  rbind(as_tibble(labout$conf.high), as_tibble(conout$conf.high)),
+  rbind(as_tibble(rep("Lab",4)), as_tibble(rep("Con",4))),
+  rep(1:4, 2) %>% as_tibble()
+)
+names(toplot) <- c("prob","conf.low","conf.high","Party","lookafter")
+ggplot(data = toplot, aes(x = lookafter, y = prob, color = Party)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymax = conf.high, y = prob,
+                     ymin = conf.low, fill = Party), alpha = 0.3) +
+  labs(x = "Party looks after local community",
+       y = "Predicted probability",
+       title = "Probability of voting for party, by perceptions of local interest") + 
+  theme_minimal()
+
+# get coefficients of lookAfterLocal variables
+concoef <- conlogit$coefficients[[2]][1]
+labcoef <- lablogit$coefficients[[2]][1]
+
+labplot <- plot(ggpredict(lablogit, terms = "labLookAfterLocal")) + 
+  labs(x = "Labour looks after local", 
+  y = "Prob. voted Labour", title = "Pred. probabilities of Labour vote") + 
+  annotate(geom = "text", label = paste("Coef = ", as.character(round(labcoef, 3))),
+           x = 1.6, y = 0.6)
+
+conplot <- plot(ggpredict(conlogit, terms = "conLookAfterLocal")) + 
+  labs(x = "Con looks after local", 
+  y = "Prob. voted Con", title = "Pred. probabilities of Con vote") + 
+  annotate(geom = "text",
+           label = paste("Coef = ", as.character(round(concoef, 3))),
+           x = 1.6, y = 0.8)
+labplot + conplot  
+  
+
+```
+
+So, a takeaway here: for both parties, the probability of voting for that party increases as one's perception that the party will "look after the local community" increases. But this relationship is stronger for the Conservatives than for Labour. In other words, support for the Conservative party appears to be more closely tied to perceptions of the party's influence on the local community. 
+
+This implies that the Conservatives may have some kind of baked-in advantage when it comes to local representation. For whatever reason, the perceived quality of local representation matters more to the Conservatives than to Labour. In turn, we might ask two questions. First, why has this difference come about? Second, are there pronounced differences in the manner in which the two parties (and others) represent local communities? 
+
+## Parliamentary speech
+This has been a long-winded way of getting to the real substance here. 
+
+I compile a variety of data sources to conduct these analyses. First, I scraped the names of roughly 44,000 places, and their geographic coordinates, in the United Kingdom from Wikipedia, which maintains a comprehensive list. The names include an enormous variety of places: towns, villages, cities, hills, rivers, dales, streams, glens, local landmarks, and the like. I then use official shapefiles and the coordinates included in the scraped data to match places to constituencies; this gives me a list, for each constituency, of all places located in that constituency. Finally, I use the ParlSpeech project's comprehensive dataset of parliamentary speech at Westminster from 2001 onwards to count how often MPs mention places located in their own constituency. (Written out in three sentences, this sounds quite easy. But I can assure you it took a very long time.) The proportion of total words that consist of in-constituency place-name mentions seems like a reasonable measure of the quality of local representation, or at least the attentiveness of individual MPs - and, when aggregated, their parties - to local communities. 
+
+
+## Initial plots
+Let's look at some initial plots here. In the raw data, does it look like certain parties systematically mention places in their constituency more often? To look at this, I aggregate the speech-level measure - the proprtion of words in the speech that are places in the MP's constituency - to the party-month level. The plot on the left is quite noisy; the plot on the right accordingly smooths things. I am not sure there are notable trends here. At certain points, the Conservatives are the most localist party; at others, Labour or the SNP are. 
+
+
+```{r plots}
+p1 <- full %>% 
+  filter(terms > 10) %>% 
+  group_by(party, my) %>%
+  summarize(prop = 100*sum(count) / sum(terms),
+            terms = sum(terms)) %>% 
+  filter(party %in% c("Lab","Con",
+                      "LibDem","SNP","PlaidCymru")) %>% 
+  mutate(my = as.Date(my)) %>% 
+  ggplot(aes(x = my, y = prop, color = party)) + 
+  geom_line() +
+  theme_minimal() + 
+  theme(legend.position="none") + 
+  labs(title = "Mentions by month and party",
+       x = "Month-year", y = "Place mentions as % of all speech")
+
+p2 <- full %>% 
+  filter(terms > 10) %>% 
+  group_by(party, my) %>%
+  summarize(prop = 100*sum(count) / sum(terms),
+            terms = sum(terms)) %>% 
+  filter(party %in% c("Lab","Con",
+                      "LibDem","SNP","PlaidCymru")) %>% 
+  mutate(my = as.Date(my)) %>% 
+  ggplot(aes(x = my, y = prop, color = party)) + 
+  geom_smooth() +
+  theme_minimal() + 
+  labs(x = "", y = "Month-year",
+       title = "Mentions by month and party, smoothed")
+  
+p1 + p2
+  
+
+```
+
+
+## Significant differences? 
+Since the plots are somewhat difficult to interpret, perhaps some summary statistics would be more useful. The table presents the raw proportions of place-name mentions, by party, in the data, both at the speech level and the party-month level. It does look like the Conservatives mention in-constituency places the most often, followed by Labour and the Lib Dems. Kolmogorov-Smirnow tests on the paired comparisons of the distributions of the variables confirm that these differences are strongly statistically significant. The p-values on the Con-Lab and Con-Lib comparisons are practically 0. So, the Conservatives do indeed discuss in-constituency places with a higher frequency across the dataset. 
+
+```{r pressure, echo=FALSE}
+con_vec <- get_vec(name = "Con")
+lab_vec <- get_vec(name = "Lab")
+ld_vec <- get_vec(name = "LibDem")
+mean_con<- mean(con_vec)
+mean_lab <- mean(lab_vec)
+mean_ld <- mean(ld_vec)
+
+
+###### get the proportions at group level as well 
+grouped_month <- full %>%
+  filter(terms > 25) %>% 
+  group_by(party, my, year, government) %>% 
+  summarize(prop = 100*sum(count)/sum(terms),
+            terms = sum(terms)) %>% 
+  filter(party %in% c("Lab","Con",
+                      "LibDem","SNP","PlaidCymru")) %>% 
+  mutate(my = as.Date(my))
+
+convec <- get_vec(data = grouped_month, name = "Con")
+labvec <- get_vec(data = grouped_month, name = "Lab")
+ldvec <- get_vec(data = grouped_month, name = "LibDem")
+
+mean_con2 <- mean(convec)
+mean_lab2 <- mean(labvec)
+mean_ld2 <- mean(ldvec)
+parties <- c("Con","Lab","LD")
+means <- c(mean_con, mean_lab, mean_ld)
+means2 <- c(mean_con2, mean_lab2, mean_ld2)
+
+table <- bind_cols(parties, means, means2)
+names(table) <- c("Party","Mean (speech-level)", "Mean (month-level)")
+kable(table)
+
+# run KS tests 
+conlab <- ks.test(con_vec, lab_vec)$p.value
+conld <- ks.test(con_vec, ld_vec)$p.value
+labld <- ks.test(lab_vec, ld_vec)$p.value
+
+## run fixed-effects model to look at party andyear trends 
+mod1 <- felm(data = full %>% 
+               filter(party %in% c("Con","Lab","LibDem","SNP","PlaidCymru")) %>% 
+               mutate(party = factor(party, 
+                                     levels = c("Con","Lab","LibDem","SNP","PlaidCymru"))), 
+             prop ~ party + as.factor(year) + government)
+
+mod2 <- felm(data = grouped_month %>% 
+               mutate(party = factor(party, 
+                                     levels = c("Con","Lab","LibDem","SNP","PlaidCymru"))), 
+             prop ~ party + as.factor(year) + government)
+summary(mod2)
+```
+Finally, I run a fixed-effects model to look at party and year trends. The Negative coefficients on each party indicate that they are associated with lower proportions of place-mentions than are the Conservatives. The time trends are also interesting: they become stronger, and more significant, only in the 2010s, indicating that in-consituency place-mentions may be a newfound trend. Finally, I included an indicator for whether a party was in government (Labour pre-2010, Conservatives and Lib Dems in the coalition, and Conservatives alone after 2015). The coefficient is negative and significant; this suggests that place-mentions may be a tool more often used by opposition parties \textit{against} a government running nationally-focused policies. Note that, when I group the observations by party and month, the coefficients on parties and the governemnt indicator are substantively unchanged. (Things do look different with the year fixed effects - will need to look into that further.)
+
+
+To link this back to the previous section: If we accept the frequency of in-constituency place-name mentions as a reasonable measure of local representation, then it does seem that the Conservatives provide higher-quality - or at least \textit{more} - local representation than do their competitors. 
+
+
+
+## Perceptions vs. objective conditions
+
+One area that is of interest to me is the extent to which individuals correctly perceive objective conditions in their local communities. 
+
+```{r}
+
+richpoor_imd <- (lm_robust(data = bes,
+                   areaRichPoor ~ imd_score + p_edlevel + age + 
+                     male + p_socgrade + p_gross_household, 
+                   fixed_effects = region, clusters = pcon))
+ggplot(bes, aes(x = imd_score, y = areaRichPoor)) + 
+  geom_point() + geom_smooth()
+
+
+richpoor_inc <- (lm_robust(data = bes,
+                   areaRichPoor ~ imd_score + p_edlevel + age + 
+                     male + p_socgrade + p_gross_household, 
+                   fixed_effects = region, clusters = pcon))
+
+unem_mod <- (lm_robust(data = bes,
+                    scale(localUnemployment_a_1)[,1] ~ scale(UnempConstRate)[,1] + p_edlevel + age + 
+                     male + p_socgrade + p_gross_household, 
+                   fixed_effects = region, clusters = pcon))
+# association is surprisingly weak - raw correlation of 0.034
+
+
+modelsummary(list(richpoor_imd,
+             unem_mod), 
+             output = "markdown",
+             stars = TRUE)
+
+test <- bes %>% select(UnempConstRate, localUnemployment_a_1) %>% na.omit()
+cor(test[,1], test[,2])
+
+ggplot(data = bes, aes(x = scale(UnempConstRate)[,1],
+                       y = scale(localUnemployment_a_1)[,1])) + 
+  geom_point() + 
+  geom_smooth()
+
+
+```
+
+
+
+
+
+
+
