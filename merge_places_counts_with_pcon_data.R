@@ -186,17 +186,47 @@ annual_pay <- read_csv("uk_geography/pcon_data/median_incomes/annual_pay_2001_20
   filter(!is.na(median))
 
 # join to the full data
-
 full <- full %>% 
   left_join(., annual_pay, 
             by = c("constit" = "area","year"))
 
+# join in census data from 2011 census 
+cen <- census_11 %>% 
+  select(ons_const_id, constituency_name, region, constituency_type, 
+         population, population_density, house_owned,
+         ethnicity_white_british, starts_with("industry")) %>% 
+  mutate(white_british_pct = ethnicity_white_british / population) %>% 
+  mutate(constituency_name = as.character(constituency_name)) %>% 
+  mutate(constituency_name = ifelse(constituency_name == "Carmarthen West and Pembrokeshire South",
+                                    "Carmarthen West and South Pembrokeshire", constituency_name), 
+         census_year = 2011)
+
+full <- full %>% 
+  mutate(census_year = case_when(
+    year >= 2011 ~ 2011, 
+    TRUE ~ 2001
+  )) %>% 
+  left_join(., cen, by = c("constit" = "constituency_name", "census_year"))
+
+
 
 # group by constituency nad month?
 grouped_constit_month <- full %>% 
-  group_by(constit, median, median_scale, party, government, majority, my, year) %>% 
-  dplyr::summarize(prop = sum(count) / sum(terms))
+  group_by(constit, median, median_scale, party, government, majority, my, year, 
+           region, population_density, constituency_type, white_british_pct) %>% 
+  dplyr::summarize(prop = sum(count) / sum(terms)) 
 
-summary(felm(data = grouped_constit_month, scale(prop)[,1] ~ government + scale(majority)[,1] +
-               median_scale | 
-               party + year | 0 | party + year))
+fullmod <- felm(data = full, scale(prop)[,1] ~scale(majority)[,1] +
+                  median_scale + scale(population_density)[,1] + 
+                  scale(white_british_pct)[,1]  | 
+                  party + year| 0 | party+year)
+groupedmod <- (felm(data = grouped_constit_month, scale(prop)[,1] ~  scale(majority)[,1] +
+               median_scale + scale(population_density)[,1] + 
+                 scale(white_british_pct)[,1] | 
+               region + year | 0 | region + year))
+
+
+
+
+modelsummary(list("full" = fullmod, "grouped" = groupedmod), 
+             stars = TRUE)
