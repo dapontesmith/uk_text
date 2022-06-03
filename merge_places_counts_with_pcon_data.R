@@ -42,16 +42,16 @@ majorities <- bes_2015 %>%
          parliament = as.numeric(paste("20", parliament, sep = ""))) 
 
 
-majorities_1997_2005 <- read_csv("results2005clean.csv") %>% 
+majorities_1997_2005 <- read_csv("uk_geography/pcon_data/results2005clean.csv") %>% 
   select(constituency_name = Name, majority) %>% 
   mutate(parliament = 2005) %>% 
   bind_rows(.,
-            read_csv("results2001clean.csv") %>% 
+            read_csv("uk_geography/pcon_data/results2001clean.csv") %>% 
               select(constituency_name = Name, majority) %>% 
               mutate(parliament = 2001)
   ) %>% 
   bind_rows(.,
-    read_csv("results1997clean.csv") %>% 
+    read_csv("uk_geography/pcon_data/results1997clean.csv") %>% 
       select(constituency_name = Name, majority) %>% 
       mutate(parliament = 1997)
   ) %>% 
@@ -208,25 +208,37 @@ full <- full %>%
   )) %>% 
   left_join(., cen, by = c("constit" = "constituency_name", "census_year"))
 
+# read in constituency distance data - distnace to london
+distances <- read_csv("uk_geography/pcon_data/constituencies_distance.csv") %>% 
+  select(constit = constituency_name, 
+         distance, parliament = year) %>% 
+  # put distance in kilometers
+  mutate(distance = distance / 1000)
+
+full <- full %>% left_join(., distances, by = c("constit", "parliament"))
 
 
 # group by constituency nad month?
 grouped_constit_month <- full %>% 
   group_by(constit, median, median_scale, party, government, majority, my, year, 
-           region, population_density, constituency_type, white_british_pct) %>% 
+           region, population_density, constituency_type, white_british_pct,
+           distance) %>% 
   dplyr::summarize(prop = sum(count) / sum(terms)) 
 
-fullmod <- felm(data = full, scale(prop)[,1] ~scale(majority)[,1] +
+fullmod <- lm(data = full, scale(prop)[,1] ~scale(majority)[,1] +
                   median_scale + scale(population_density)[,1] + 
-                  scale(white_british_pct)[,1]  | 
-                  party + year| 0 | party+year)
-groupedmod <- (felm(data = grouped_constit_month, scale(prop)[,1] ~  scale(majority)[,1] +
+                  scale(white_british_pct)[,1]  + scale(distance)[,1]*median_scale)
+
+
+groupedmod <- (felm(data = grouped_constit_month %>% 
+                      filter(!region%in%c("Scotland","Wales"),
+                             party%in%c("Con","Lab","LibDem")), 
+                    scale(prop)[,1] ~  scale(majority)[,1] +
                median_scale + scale(population_density)[,1] + 
-                 scale(white_british_pct)[,1] | 
-               region + year | 0 | region + year))
+                 party*scale(distance)[,1] | 
+                  year | 0 |  year))
 
-
-
+# seems like distance does serve as a predictor of mentions ... 
 
 modelsummary(list("full" = fullmod, "grouped" = groupedmod), 
              stars = TRUE)
