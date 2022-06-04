@@ -225,6 +225,12 @@ grouped_constit_month <- full %>%
            distance) %>% 
   dplyr::summarize(prop = sum(count) / sum(terms)) 
 
+#write both to csv 
+write.csv(full, "uk_geography/places_output/mentions_with_pcon_data.csv")
+write.csv(grouped_constit_month, 
+          "uk_geography/places_output/mentions_grouped_with_pcon_data.csv")
+
+# test out some models 
 fullmod <- lm(data = full, scale(prop)[,1] ~scale(majority)[,1] +
                   median_scale + scale(population_density)[,1] + 
                   scale(white_british_pct)[,1]  + scale(distance)[,1]*median_scale)
@@ -239,6 +245,7 @@ groupedmod <- (felm(data = grouped_constit_month %>%
                   year | 0 |  year))
 
 # seems like distance does serve as a predictor of mentions ... 
+
 
 modelsummary(list("full" = fullmod, "grouped" = groupedmod), 
              stars = TRUE)
