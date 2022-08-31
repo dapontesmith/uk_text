@@ -12,6 +12,7 @@ library(lfe)
 library(patchwork)
 library(knitr)
 library(ggeffects)
+
 # read in data 
 full <- read_csv("uk_geography/places_output/mentions_with_pcon_data.csv")
 grouped <- read_csv("uk_geography/places_output/mentions_with_pcon_data.csv")
